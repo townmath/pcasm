@@ -1,0 +1,123 @@
+% To create PDF version, type
+%   pdflatex pcasm.tex
+% This will produce errors the first time, type R at the error prompt
+% Then rerun again (twice to get all the references.
+
+\documentclass[11pt]{book}
+
+%this seems to be more annoying than useful
+%\typeout{-----------------------------------------}
+%\typeout{Enter files to be included. (*=all)}
+%\typeout{(pcasm1,pcasm2,...)}
+%\typeout{-----------------------------------------}
+%\typein[\infiles]{ }
+%\if*\infiles\else\includeonly{\infiles}\fi
+
+
+\newif\ifmypdf
+\ifx\pdfoutput\undefined
+    \pdffalse          % we are not running PDFLaTeX
+\else
+%    \pdfoutput=1       % we are running PDFLaTeX
+%    \pdftrue
+\fi
+%----------------------------------------------------------------------
+% The following is the construct that interests us in the end:
+%\ifpdf
+%   % Put PDF-specific stuff here
+%\else
+%   % Put LaTeX-specific stuff here
+%\fi
+
+\usepackage{indentfirst}  % indent first paragraph of sections
+%\usepackage{graphicx}
+\usepackage{listings}
+\usepackage{epsfig}
+\usepackage{longtable}
+\usepackage{color}
+\usepackage{makeidx}
+\usepackage{amsmath}
+\usepackage{float}
+
+%\usepackage[pdftitle=PCASM,pdflang=en-US]{hyperref}%accessibility
+%\usepackage[tagged]{accessibility}
+
+\usepackage[pdftex,
+            bookmarks=true,
+            pdflang={en-US},
+            pdftitle={PC Assembly Language},
+            bookmarksnumbered=true,
+            pdfauthor={Paul A. Carter Adapted for SCC's CISP310 by James R. Town},
+            pdfsubject={80x86 Assembly Language Programming},
+	    pdfkeywords={80x86 assembly programming}]{hyperref}
+	 
+
+\hypersetup{
+   colorlinks,
+    citecolor=black,
+    filecolor=black,
+    linkcolor=black,
+    urlcolor=black
+}
+
+
+
+\definecolor{blue}{RGB}{0,0,255}
+\definecolor{dkgreen}{RGB}{46,133,64}
+\definecolor{gray}{rgb}{0.5,0.5,0.5}
+\definecolor{mauve}{rgb}{0.58,0,0.82}
+
+   
+\author{Paul~A.~Carter \\Adapted for SCC's CISP310 by James R. Town}
+\title{PC Assembly Language}
+\usepackage{lecnote}
+\makeindex
+
+
+\hyphenation{num-bers SF OF CF DF fact dif-fer-ence inter-rupts op-er-ands}
+\begin{document}
+\maketitle
+\newlength{\AsmMargin}
+\setlength{\AsmMargin}{-1cm}
+\DefineVerbatimEnvironment{AsmCodeListing}{Verbatim}
+{numbers=left, frame=lines,xleftmargin=\AsmMargin, labelposition=all, commentchar=^ }
+
+\newcommand{\MarginNote}[1]{\marginpar{\sloppy \em \small #1}}
+\thispagestyle{empty}
+\vspace*{\fill}
+\noindent This work is licensed under the Creative Commons 
+Attribution-NonCommercial-ShareAlike 4.0 International License. To view
+a copy of this license, visit
+{\code http://creativecommons.org/licenses/by-nc-sa/4.0/}.
+
+
+\index{subroutine|see{subprogram}}
+\index{REPNZ|see{REPNE}}
+\index{REPZ|see{REPE}}
+\index{C++!member functions|see{methods}}
+\index{text segment|see{code segment}}
+
+\vfill
+\frontmatter
+\include{toc}
+%\include{pcasmf}
+\mainmatter
+\include{pcasm1} %intro
+\include{pcasm2} %basic operations
+\include{pcasm3} %bit operations
+\include{pcasm4} %masm
+\include{pcasm5} %procs 
+\include{pcasm6} %arrays
+\include{pcasm7} %structs
+%\include{pcasm8} %floats 
+\begin{appendix}
+\include{pcasma}
+\end{appendix}
+\clearpage
+\ifmypdf
+\phantomsection % fixes link anchor
+\fi
+\addcontentsline{toc}{chapter}{Index}
+\printindex
+\end{document}
+

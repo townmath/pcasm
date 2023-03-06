@@ -1,0 +1,649 @@
+%-*- latex -*-
+\chapter{Subprograms}
+
+This chapter looks at using subprograms to make modular programs and to
+interface with high level languages (like C). Functions and procedures are
+high level language examples of subprograms.
+
+The code that calls a subprogram and the subprogram itself must agree
+on how data will be passed between them. These rules on how data will
+be passed are called \emph{calling conventions}. \index{calling
+convention} A large part of this chapter will deal with the standard C
+calling conventions that can be used to interface assembly subprograms
+with C programs. This (and other conventions) often pass the addresses
+of data (\emph{i.e.} pointers) to allow the subprogram to access the
+data in memory.
+
+\section{Indirect Addressing\index{indirect addressing|(}}
+
+Indirect addressing allows registers to act like pointer variables. To
+indicate that a register is to be used indirectly as a pointer, it is
+enclosed in square brackets ({\code []}). For example:
+%tested in subproc0.asm
+\begin{lstlisting}[language={[x86masm]Assembler}]
+      mov    ax, data     ; normal direct memory addressing of a word
+      mov    ebx, offset data      ; ebx = & data
+      mov    ax, [ebx]      ; ax = *ebx
+\end{lstlisting}
+\MarginNote{Note: Lines 1 and 3 perform the same operation.}
+Because AX holds a word, line~3 reads a word starting at the address stored 
+in EBX.  What EBX is assumed to point to is completely determined by what
+instructions are used. Furthermore, even the fact that EBX is a pointer is
+completely determined by the what instructions are used. If EBX is used
+incorrectly, often there will be no assembler error; however, the program
+will not work correctly. This is one of the many reasons that assembly
+programming is more error prone than high level programming.
+
+All the 32-bit general purpose (EAX, EBX, ECX, EDX) and index (ESI, EDI)
+registers can be used for indirect addressing. 
+\index{indirect addressing|)}
+
+\section{Simple Subprogram Example\index{subprogram|(}}
+
+A subprogram is an independent unit of code that can be used from different
+parts of a program. In other words, a subprogram is like a function in C. A
+jump can be used to invoke the subprogram, but returning presents a problem.
+If the subprogram is to be used by different parts of the program, it must
+return back to the section of code that invoked it. Thus, the jump back from
+the subprogram can not be hard coded to a label. The code below shows how this
+could be done using the indirect form of the {\code JMP} instruction. This 
+form of the instruction uses the value of a register to determine where to
+jump to (thus, the register acts much like a \emph{function pointer} in C.)
+Here is a program that uses a subprogram to get a digit from the user.
+\lstinputlisting{../code/ch5/subproc1.asm}
+
+The {\code get\_digit} subprogram uses a simple, register-based calling
+convention. It expects the EBX register to hold the address of the
+BYTE to store the digit input into and the ECX register to hold the
+code address of the instruction to jump back to. In line~22,
+the {\code ret1} label is used to compute this return address. The {\code \$} 
+operator could have been used to compute the return
+address. The {\code \$} operator returns the current address for the
+line it appears on. The expression {\code \$ + 8} computes the address
+of the {\code ret1} label on line~24.
+
+Both of these return address computations are awkward. The first method
+requires a label to be defined for each subprogram call. The second method
+does not require a label, but does require careful thought. If a near jump
+was used instead of a short jump, the number to add to {\code \$} would not
+be 8! Fortunately, there is a much simpler way to invoke subprograms. This
+method uses the \emph{stack}.
+
+\section{The Stack\index{stack|(}}
+
+Many CPUs have built-in support for a stack. A stack is a Last-In First-Out
+(\emph{LIFO}) list. The stack is an area of memory that is organized in this
+fashion. The {\code PUSH} instruction adds data to the stack and the
+{\code POP} instruction removes data. The data removed is always the last
+data added (that is why it is called a last-in first-out list).
+
+The SS segment register specifies the segment that contains the stack (usually
+this is the same segment data is stored into). The ESP register contains the
+address of the data that would be removed from the stack. This data is said
+to be at the \emph{top} of the stack. Data can only be added in double word
+units. That is, one can not push a single byte on the stack.
+
+The {\code PUSH} instruction inserts a double word\footnote{Actually
+words can be pushed too, but in 32-bit protected mode, it is easier to
+work with only double words on the stack.} on the stack by subtracting
+4 from ESP and then stores the double word at {\code [ESP]}. The
+{\code POP} instruction reads the double word at {\code [ESP]} and
+then adds 4 to ESP. The code below demonstrates how these instructions
+work and assumes that ESP is initially {\code 0100H}.
+%tested in stack.asm
+\begin{lstlisting}[language={[x86masm]Assembler}]
+    push   dword ptr 1   ; 1 stored at 00FCh, ESP = 00FCh
+    push   dword ptr 2   ; 2 stored at 00F8h, ESP = 00F8h
+    push   dword ptr 3   ; 3 stored at 00F4h, ESP = 00F4h
+    pop    eax        ; EAX = 3, ESP = 00F8h
+    pop    ebx        ; EBX = 2, ESP = 00FCh
+    pop    ecx        ; ECX = 1, ESP = 0100h
+\end{lstlisting}
+
+The stack can be used as a convenient place to store data temporarily. It is
+also used for making subprogram calls, passing parameters and local
+variables.
+
+The 80x86 also provides a {\code PUSHA} instruction (push all) that pushes the values
+of EAX, EBX, ECX, EDX, ESI, EDI and EBP registers (not in this order). The
+{\code POPA} instruction (pop all) can be used to pop them all back off.
+\index{stack|)}
+
+\section{The CALL and RET Instructions\index{subprogram!calling|(}}
+\index{CALL|(}
+\index{RET|(}
+The 80x86 provides two instructions that use the stack to make calling
+subprograms quick and easy. The CALL instruction makes an
+unconditional jump to a subprogram and \emph{pushes} the address of
+the next instruction on the stack. The RET instruction
+\emph{pops off} an address and jumps to that address. When using these
+instructions, it is very important that one manage the stack correctly
+so that the right number is popped off by the RET instruction!
+
+The previous program can be rewritten to use these new instructions by 
+changing lines~21 to 24 to be:
+%tested in subproc2.asm
+\begin{lstlisting}[language={[x86masm]Assembler}, firstnumber=21]
+      mov    ebx, offset input
+      ; don't need this anymore
+      call   get_digit
+      ; this either
+\end{lstlisting}
+and change the subprogram {\code get\_digit} to:
+\begin{lstlisting}[language={[x86masm]Assembler}]
+get_digit:
+    mov ah, 1
+    int 21h
+    and al, 0fh     ; char to int
+    mov [ebx], al   ; store input into memory
+    ret         ; jump back to caller
+\end{lstlisting}
+
+There are several advantages to CALL and RET:
+\begin{itemize}
+\item It is simpler!
+\item It allows subprograms calls to be nested easily. Notice that
+{\code get\_digit} could call {\code read\_char}. This call pushes another address
+on the stack. At the end of {\code read\_char}'s code is a RET that pops
+off the return address and jumps back to {\code get\_digit}'s code. Then when
+{\code get\_digit}'s RET is executed, it pops off the return address that 
+jumps back to {\code main}. This works correctly because of the LIFO
+property of the stack.
+%tested in subproc2.asm
+\begin{lstlisting}[language={[x86masm]Assembler}]
+get_digit:
+    call read_char
+    and al, 0fh     ; char to int
+    mov [ebx], al   ; store input into memory
+    ret         ; jump back to caller
+
+read_char:
+    mov ah, 1
+    int 21h
+    ret
+\end{lstlisting}
+\end{itemize}
+
+Remember it is \emph{very} important to pop off all data that is pushed
+on the stack. For example, consider the following:
+%tested in subproc2.asm
+\begin{lstlisting}[language={[x86masm]Assembler}]
+get_digit:
+    mov ah, 1
+    int 21h
+    and al, 0fh     ; char to int
+    mov [ebx], al   ; store input into memory
+    push eax
+    ret         ; pops off eax value, not the return address!! 
+\end{lstlisting}
+This code would not return correctly!
+\index{RET|)}
+\index{CALL|)}
+
+\section{Calling Conventions\index{calling convention|(}}
+
+When a subprogram is invoked, the calling code and the subprogram (the
+\emph{callee}) must agree on how to pass data between them. High-level
+languages have standard ways to pass data known as \emph{calling 
+conventions}. For high-level code to interface with assembly language, the
+assembly language code must use the same conventions as the high-level
+language. The calling conventions can differ from compiler to compiler or
+may vary depending on how the code is compiled (\emph{e.g.} if
+optimizations are on or not). One universal convention is that the code will
+be invoked with a {\code CALL} instruction and return via a {\code RET}.
+
+Calling conventions
+allow one to create subprograms that are \emph{reentrant}. A reentrant
+subprogram may be called at any point of a program safely (even inside
+the subprogram itself).
+
+\subsection{"Passing" parameters using registers}
+As we saw above, the easiest way you can "pass" parameters is to use the registers.  
+I say pass in quotes because you aren't doing anything extra like you do in C++.  Nevertheless,
+you can use the existing values in your subprogram.  The changes
+ you make will change the registers back in main, similar to passing by reference. 
+ \subsubsection{Passing registers by value}
+ Sometimes you might want to change the registers in the procedure, but not have those changes
+ reflected in main.  This is similar to a local variable in C++ or passing a parameter by value.  There are two 
+ common ways to do this, the first is to use push and pop to keep the registers from changing, 
+ here is an example from earlier, but now the value of eax is preserved:
+ %tested in subproc3.asm
+ \begin{lstlisting}[language={[x86masm]Assembler}]
+ get_digit:
+    push eax
+    mov ah, 1
+    int 21h
+    and al, 0fh     ; char to int
+    mov [ebx], al   ; store input into memory
+    pop eax
+    ret        
+\end{lstlisting}
+The second way does the exact same thing, but without push and pop cluttering your code 
+(the assembler adds those later).  To preserve the registers this way you use PROC with USES, 
+this looks cleaner, and is explicit that EAX is being preserved.  
+%tested in subproc3.asm
+ \begin{lstlisting}[language={[x86masm]Assembler}]
+get_digit proc uses eax
+    mov ah, 1
+    int 21h
+    and al, 0fh     ; char to int
+    mov [ebx], al   ; store input into memory
+    ret         
+get_digit endp
+\end{lstlisting}
+Note the ENDP at the bottom, this is needed to close the procedure.  We didn't need to do this when
+we were using a named location for our procedure, but it becomes necessary when you use PROC.
+Since we use this we also have to move {\code MAIN ENDP} above the procedure because we can't 
+have nested procedures. 
+\subsection{Passing parameters on the stack\index{stack|(}\index{stack!parameters|(}}
+
+Parameters to a subprogram may be passed on the stack. They are pushed onto
+the stack before the {\code CALL} instruction. Just as in C, if the
+parameter is to be changed by the subprogram, the \emph{address} of the 
+data must be passed, not the \emph{value}. If the parameter's size is less
+than a double word, it must be converted to a double word before being pushed.
+
+The parameters on the stack are not popped off by the subprogram, instead
+they are accessed from the stack itself. Why?
+\begin{itemize}
+\item Since they have to be pushed on the stack before the {\code CALL}
+instruction, the return address would have to be popped off first (and
+then pushed back on again).
+\item Often the parameters will have to be used in several places in the
+subprogram. Usually, they can not be kept in a register for the entire
+subprogram and would have to be stored in memory. Leaving them on the
+stack keeps a copy of the data in memory that can be accessed at any
+point of the subprogram.
+\end{itemize}
+
+\begin{figure}
+\centering
+\begin{tabular}{l|c|}
+\cline{2-2}
+&  \\ \cline{2-2}
+ESP + 4 & Parameter \\ \cline{2-2}
+ESP     & Return address \\ \cline{2-2}
+ & \\ \cline{2-2}
+\end{tabular}
+\caption{}
+\label{fig:stack1}
+\end{figure}
+Consider 
+%\MarginNote{When using indirect addressing, the 80x86 processor 
+%accesses different segments depending on what registers are used in the
+%indirect addressing expression. ESP (and EBP) use the stack segment while
+%EAX, EBX, ECX and EDX use the data seg\-ment. However, this is usually 
+%unimportant for most protected mode programs, because for them the data 
+%and stack segments are the same.}
+a subprogram that is passed a single parameter on the stack. When
+the subprogram is invoked, the stack looks like Figure~\ref{fig:stack1}.
+The parameter can be accessed using indirect addressing ({\code [ESP+4]}
+\footnote{It is legal to add a constant to a register when using indirect
+addressing. More complicated expressions are possible too. This topic is covered
+in the next chapter}).
+\begin{figure}
+\centering
+\begin{tabular}{l|c|}
+\cline{2-2}
+&  \\ \cline{2-2}
+ESP + 8 & Parameter \\ \cline{2-2}
+ESP + 4 & Return address \\ \cline{2-2}
+ESP     & subprogram data \\ \cline{2-2}
+\end{tabular}
+\caption{}
+\label{fig:stack2}
+\end{figure}
+
+\begin{figure}[t]
+ \begin{lstlisting}[language={[x86masm]Assembler}]
+subprogram_label:
+      push   ebp           ; save original EBP value on stack
+      mov    ebp, esp      ; new EBP = ESP
+; subprogram code
+      pop    ebp           ; restore original EBP value
+      ret
+\end{lstlisting}
+\caption{General subprogram form \label{fig:subskel1}}
+\end{figure}
+
+If the stack is also used inside the subprogram to store data, the
+number needed to be added to ESP will change. For example,
+Figure~\ref{fig:stack2} shows what the stack looks like if a DWORD is
+pushed the stack. Now the parameter is at {\code ESP + 8} not {\code
+ESP + 4}. Thus, it can be very error prone to use ESP when referencing
+parameters. To solve this problem, the 80386 supplies another register
+to use: EBP. This register's only purpose is to reference data on the
+stack. The C calling convention mandates that a subprogram first save
+the value of EBP on the stack and then set EBP to be equal to ESP.
+This allows ESP to change as data is pushed or popped off the stack
+without modifying EBP. At the end of the subprogram, the original
+value of EBP must be restored (this is why it is saved at the start of
+the subprogram.)  Figure~\ref{fig:subskel1} shows the general form of
+a subprogram that follows these conventions.
+
+\begin{figure}[t]
+\centering
+\begin{tabular}{ll|c|}
+\cline{3-3}
+&  & \\ \cline{3-3}
+ESP + 8 & EBP + 8 & Parameter \\ \cline{3-3}
+ESP + 4 & EBP + 4 & Return address \\ \cline{3-3}
+ESP     & EBP     & saved EBP \\ \cline{3-3}
+\end{tabular}
+\caption{}
+\label{fig:stack3}
+\end{figure}
+
+
+Lines 2 and 3 in Figure~\ref{fig:subskel1} make up the general \emph{prologue}
+of a subprogram. Lines 5 and 6 make up the \emph{epilogue}. 
+Figure~\ref{fig:stack3} shows what the stack looks like immediately
+after the prologue. Now the parameter can be access with {\code [EBP + 8]}
+at any place in the subprogram without worrying about what else has
+been pushed onto the stack by the subprogram.
+
+After the subprogram is over, the parameters that were pushed on the
+stack must be removed. The C calling convention \index{calling
+convention!C} specifies that the caller code must do this. Other
+conventions are different. For example, the Pascal calling convention
+\index{calling convention!Pascal} specifies that the subprogram must
+remove the parameters.  (There is another form of the RET \index{RET}
+instruction that makes this easy to do.) Some C compilers support this
+convention too. 
+
+\begin{figure}[t]
+ \begin{lstlisting}[language={[x86masm]Assembler}]
+      push   dword ptr 1        ; pass 1 as parameter
+      call   funC
+      add    esp, 4         ; remove parameter from stack
+\end{lstlisting}
+\caption{Sample C style subprogram call \label{fig:subcallC}}
+\end{figure}
+
+\begin{figure}[t]
+ \begin{lstlisting}[language={[x86masm]Assembler}]
+      push   dword ptr 1        ; pass 1 as parameter
+      call   funPascal
+      ...
+      funPascal PROC
+          ;subprogram code
+          ret 4 ;remove parameter from stack
+       funPascal ENDP
+\end{lstlisting}
+\caption{Sample Pascal style subprogram call \label{fig:subcallP}}
+\end{figure}
+
+Figure~\ref{fig:subcallC} shows how a subprogram using the C calling
+convention would be called. Line~3 removes the parameter from the
+stack by directly manipulating the stack pointer. A {\code POP}
+instruction could be used to do this also, but would require the
+useless result to be stored in a register. Actually, for this
+particular case, many compilers would use a {\code POP ECX}
+instruction to remove the parameter. The compiler would use a {\code
+POP} instead of an {\code ADD} because the {\code ADD} requires more
+bytes for the instruction. However, the {\code POP} also changes ECX's
+value!  Figure~\ref{fig:subcallP} show how a subprogram using the Pascal
+calling convention would remove the parameter from the stack. \\
+
+Next is another example program with two subprograms that use
+the C calling conventions discussed above. Line~64 (and other lines)
+shows that multiple data and code segments may be declared in a single
+source file. They will be combined into single data and code segments
+in the linking process. Splitting up the data and code into separate
+segments allow the data that a subprogram uses to be defined close by
+the code of the subprogram.
+\index{stack!parameters|)}
+
+\lstinputlisting{../code/ch5/numSum.asm} %numSum
+
+
+\subsection{Local variables on the stack\index{stack!local variables|(}}
+
+The stack can be used as a convenient location for local variables. This is
+exactly where C stores normal (or \emph{automatic} in C lingo) variables.
+Using the stack for variables is important if one wishes subprograms to be
+reentrant. A reentrant subprogram will work if it is invoked at any place,
+including the subprogram itself. In other words, reentrant subprograms
+can be invoked \emph{recursively}. Using the stack for variables also saves
+memory. Data not stored on the stack is using memory from the beginning of
+the program until the end of the program (C calls these types of variables
+\emph{global} or \emph{static}). Data stored on the stack only use memory
+when the subprogram they are defined for is active.
+
+\begin{figure}[t]
+ \begin{lstlisting}[language={[x86masm]Assembler}]
+subprogram_label:
+      push   ebp                ; save original EBP value on stack
+      mov    ebp, esp           ; new EBP = ESP
+      sub    esp, LOCAL_BYTES   ; = # bytes needed by locals
+; subprogram code
+      mov    esp, ebp           ; deallocate locals
+      pop    ebp                ; restore original EBP value
+      ret
+\end{lstlisting}
+\caption{General subprogram form with local variables\label{fig:subskel2}}
+\end{figure}
+
+\begin{figure}[t]
+\begin{lstlisting}[language=C++,frame=tlrb]{}
+void calc_sum( int n, int *sumP) {
+  int i, sum = 0;
+
+  for( i=1; i <= n; i++ ) {
+    sum += i;
+   }
+  *sumP = sum;
+}
+\end{lstlisting}
+\caption{C version of sum \label{fig:Csum}}
+\end{figure}
+
+%this is in subproc4.asm
+\begin{figure}[t]
+ \begin{lstlisting}[language={[x86masm]Assembler}]
+; stack has the address of sumP and the value of n
+cal_sum:
+      push   ebp
+      mov    ebp, esp
+      sub    esp, 4               ; make room for local sum
+      
+      mov    dword ptr [ebp - 4], 0   ; sum = 0
+      mov    ebx, 1               ; ebx (i) = 1
+for_loop:
+      cmp    ebx, [ebp+8]         ; is i <= n?
+      jnle   end_for
+
+      add    [ebp-4], ebx         ; sum += i
+      inc    ebx
+      jmp    short for_loop
+
+end_for:
+      mov    ebx, [ebp+12]        ; ebx = sumP
+      mov    eax, [ebp-4]         ; eax = sum
+      mov    [ebx], eax           ; *sumP = sum;
+
+      mov    esp, ebp
+      pop    ebp
+      ret
+ \end{lstlisting}
+\caption{Assembly version of sum\label{fig:Asmsum}}
+\end{figure}
+
+Local variables are stored right after the saved EBP value in the stack.
+They are allocated by subtracting the number of bytes required from ESP
+in the prologue of the subprogram. Figure~\ref{fig:subskel2} shows the 
+new subprogram skeleton. The EBP register is used to access local variables.
+Consider the C function in Figure~\ref{fig:Csum}. Figure~\ref{fig:Asmsum}
+shows how the equivalent subprogram could be written in assembly.
+
+\begin{figure}[t]
+\centering
+\begin{tabular}{ll|c|}
+\cline{3-3}
+ESP + 16 & EBP + 12 & address of {\code sumP} \\ \cline{3-3}
+ESP + 12 & EBP + 8  & {\code n} \\ \cline{3-3}
+ESP + 8  & EBP + 4  & Return address \\ \cline{3-3}
+ESP + 4  & EBP      & saved EBP \\ \cline{3-3}
+ESP      & EBP - 4  & {\code sum} \\ \cline{3-3}
+\end{tabular}
+\caption{}
+\label{fig:SumStack}
+\end{figure}
+
+Figure~\ref{fig:SumStack} shows what the stack looks like after the
+prologue of the program in Figure~\ref{fig:Asmsum}. This section of
+the stack that contains the parameters, return information and local
+variable storage is called a \emph{stack frame}. Every invocation of
+a C function creates a new stack frame on the stack.
+
+\begin{figure}[t]
+ \begin{lstlisting}[language={[x86masm]Assembler}]
+subprogram_label:
+      enter  LOCAL_BYTES, 0     ; = # bytes needed by locals
+; subprogram code
+      leave
+      ret
+ \end{lstlisting}
+\caption{General subprogram form with local variables using 
+{\code ENTER} and {\code LEAVE}\label{fig:subskel3}}
+\end{figure}
+
+%\MarginNote{Despite the fact that {\code ENTER} and {\code LEAVE} simplify
+%the prologue and epilogue they are not used very often. Why? Because
+%they are slower than the equivalent simpler instructions! This is an
+%example of when one can not assume that a one instruction sequence is
+%faster than a multiple instruction one.} 
+The prologue and epilogue of a subprogram can be simplified by using
+two special instructions that are designed specifically for this
+purpose. The {\code ENTER} instruction performs the prologue code and the
+{\code LEAVE} performs the epilogue. The {\code ENTER} instruction
+takes two immediate operands. For the C calling convention, the second
+operand is always 0. The first operand is the number of bytes needed by
+local variables. The {\code LEAVE} instruction has no
+operands. Figure~\ref{fig:factorial} shows how these instructions are
+used. 
+
+\index{stack!local variables|)}
+\index{stack|)}
+\index{calling convention|)}
+\index{subprogram!calling|)}
+\section{Multi-Module Programs\index{multi-module programs|(}}
+
+A \emph{multi-module program} is one composed of more than one object
+file.  The numSum.asm example program above is a multi-module
+program. It consists of the Assembly driver object file and the assembly
+object file. Recall that the linker
+combines the object files into a single executable program. The linker
+must match up references made to each label in one module (\emph{i.e.}
+object file) to its definition in another module. In order for module
+A to use a label defined in module B, the {\code extern} directive
+must be used. After the {\code extern} \index{directive!extern}
+directive comes a label and then {\code :proc} to let it know the label is a procedure. 
+The directive tells the assembler to treat these labels as \emph{external} to the
+module. That is, these are labels that can be used in this module, but
+are defined in another. The {\code printInc.lib} file defines the
+{\code printDec}, \emph{etc.} routines as external.
+
+\index{multi-module programs|)}
+
+\section{Reentrant and Recursive Subprograms\index{recursion|(}}
+
+\index{subprogram!reentrant|(}
+A reentrant subprogram must satisfy the following properties:
+\begin{itemize}
+\item It must not modify any code instructions. In a high level language
+this would be difficult, but in assembly it is not hard for a program to
+try to modify its own code. For example:
+%this is tested in subproc5.asm
+ \begin{lstlisting}[language={[x86masm]Assembler},numbers=none]
+  mov word ptr [cs:$+9], 5    ; copy 5 into the word 7 bytes ahead
+  add ax, 2               ; previous statement changes 2 to 5!
+\end{lstlisting}
+This code would work in real mode, but in protected mode operating systems 
+the code segment is marked as read only. When the first line above executes,
+the program will be aborted on these systems. This type of programming is
+bad for many reasons. It is confusing, hard to maintain and does not allow
+code sharing (see below).
+
+\item It must not modify global data (such as data in the {\code data} and
+the {\code bss} segments). All variables are stored on the stack.
+
+\end{itemize}
+
+There are several advantages to writing reentrant code.
+\begin{itemize}
+\item A reentrant subprogram can be called recursively.
+\item A reentrant program can be shared by multiple processes. On many
+multi-tasking operating systems, if there are multiple instances of a
+program running, only \emph{one} copy of the code is in memory. Shared
+libraries and DLL's (\emph{Dynamic Link Libraries}) use this idea as well.
+\item Reentrant subprograms work much better in \emph{multi-threaded}
+\footnote{A multi-threaded program has multiple threads of execution. That
+is, the program itself is multi-tasked.} pro\-grams. Windows 9x/NT and most
+UNIX-like operating systems (Solaris, Linux, \emph{etc.}) support 
+multi-threaded programs.
+\end{itemize}
+\index{subprogram!reentrant|)}
+
+\subsection{Recursive subprograms}
+
+These types of subprograms call themselves. The recursion can be either
+\emph{direct} or \emph{indirect}. Direct recursion occurs when a subprogram,
+say {\code foo}, calls itself inside {\code foo}'s body. Indirect recursion
+occurs when a subprogram is not called by itself directly, but by another
+subprogram it calls. For example, subprogram {\code foo} could call
+{\code bar} and {\code bar} could call {\code foo}.
+
+Recursive subprograms must have a \emph{termination condition}. When
+this condition is true, no more recursive calls are made. If a
+recursive routine does not have a termination condition or the condition
+never becomes true, the recursion will never end (much like an infinite
+loop).
+
+%also in subproc5.asm
+\begin{figure}
+ \begin{lstlisting}[language={[x86masm]Assembler}]
+; finds n!
+factorial proc
+    enter 0,0 ; sets up stack frame
+    mov    eax, [ebp+4] ; eax = n retrieve parameter from stack
+    cmp    eax, 1 ; check termination condition
+    jbe    term_cond    ; if n <= 1, terminate
+    dec    eax    ; n--
+    push   eax    ; call with (n-1)
+    call   factorial ; eax = fact(n-1)
+    mul    dword ptr [ebp+4]   ; edx:eax = eax * [ebp+4]
+    term_cond:
+    leave ; terminates stack frame
+    ret 1 ; clean up the eax we pushed earlier
+factorial endp
+\end{lstlisting}
+\caption{Recursive factorial function\label{fig:factorial}}
+\end{figure}
+
+\begin{figure}
+\centering
+%\includegraphics{factStack.eps}
+\input{factStack.latex}
+\caption{Stack frames for factorial function\label{fig:factStack}}
+\end{figure}
+
+Figure~\ref{fig:factorial} shows a function that calculates factorials
+recursively. It could be called from C with:
+\begin{lstlisting}[stepnumber=0]{}
+x = factorial(3);         /* find 3! */
+\end{lstlisting}
+Figure~\ref{fig:factStack} shows what the stack looks like at its deepest
+point for the above function call.
+
+
+%Figures~\ref{fig:rec2C} and \ref{fig:rec2Asm} show another more
+%complicated recursive example in C and assembly, respectively. What is
+%the output is for {\code factorial(3)}? Note that the {\code ENTER} instruction
+%creates a new {\code i} on the stack for each recursive call. Thus, each
+%recursive instance of {\code f} has its own independent variable {\code i}.
+%Defining {\code i} as a double word in the {\code data} segment would not
+%work the same. 
+\index{recursion|)}
+
+\index{subprogram|)}

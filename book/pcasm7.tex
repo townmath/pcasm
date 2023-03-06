@@ -1,0 +1,75 @@
+% -*-latex-*-
+\chapter{Structures}
+
+\section{Structures\index{structures|(}}
+
+\subsection{Introduction}
+
+Structures are used in C to group together related data into a composite 
+variable. This technique has several advantages:
+\begin{enumerate}
+\item It clarifies the code by showing that the data defined in the structure
+      are intimately related.
+\item It simplifies passing the data to functions. Instead of passing
+      multiple variables separately, they can be passed as a single unit.
+\item It increases the \index{locality}\emph{locality}\footnote{See the virtual memory 
+management section of any Operating System text book for discussion of
+this term.} of the code.
+\end{enumerate}
+
+From the assembly standpoint, a structure can be considered as an
+array with elements of \emph{varying} size. The elements of real
+arrays are always the same size and type. This property is what allows
+one to calculate the address of any element by knowing the starting
+address of the array, the size of the elements and the desired
+element's index.
+
+A structure's elements do not have to be the same size (and usually
+are not). Because of this each element of a structure must be
+explicitly specified and is given a \emph{tag} (or name) instead of a
+numerical index.
+
+In assembly, the element of a structure will be accessed in a similar
+way as in C.  To access an element, you give the structure variable name
+then a dot then the field.  
+
+For example, consider the following structure shown in Figure~\ref{fig:CStructs}.
+%tested in struct1.cpp
+\begin{figure}[t]
+\begin{lstlisting}[language=C,stepnumber=0]{}
+struct exampleStruct {
+  short int x=0;    /* 2-byte integer */
+  int       y=1;    /* 4-byte integer */
+  long int  z=2;    /* 8-byte integer   */
+};
+
+//down in main
+exampleStruct s = {4,5,6};
+\end{lstlisting}
+\caption{Defining and declaring structs in C\label{fig:CStructs}}
+\end{figure}
+
+Compare this to Figure~\ref{fig:AsmStructs}, structures and 
+structure variables are both declared in the data segment in assembly. 
+%tested in struct1.asm
+\begin{figure}[t]
+\begin{lstlisting}[language={[x86masm]Assembler}]
+.data
+   exampleStruct struct
+	   x dw 1
+	   y dd 2
+	   z dq 3
+   exampleStruct ends
+   s exampleStruct <4,5,6>
+\end{lstlisting}
+\caption{Defining and declaring structs in Assembly\label{fig:AsmStructs}}
+\end{figure}
+For both, if we wanted to access member y, we would use {\code s.y}.  If you only wanted
+to specify values for x and z you can omit the y initializer and it will be assigned the default 
+value: {\code s2 exampleStruct <7,,9>}.  
+
+\subsection{Structure Example}
+Here is an example of a structure that holds user data:
+\lstinputlisting{../code/ch7/structEx.asm}
+%maybe add more about structs, what else do they need to know? 
+
